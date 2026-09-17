@@ -6,12 +6,14 @@ Automatic model routing for Claude Code, OpenCode, GitHub Copilot CLI, and OpenA
 Each turn goes to the cheapest model that can actually handle it, with the decision made by
 [Jev](https://docs.typesafe.ai), TypeSafe's System One decision model.
 
-It runs the real Claude Code CLI. The interface, keybindings, tools, permission prompts,
+`jev-claude` runs the real Claude Code CLI. The interface, keybindings, tools, permission prompts,
 `/compact`, `/resume` and session handling are unchanged, because they are still Claude
 Code's.
 
-The same rule applies to the other wrappers: `jev-opencode`, `jev-copilot`, and `jev-codex`
-launch the real CLI and forward every argument.
+`jev-opencode` and `jev-codex` likewise launch their native CLIs. `jev-copilot` uses the
+official Copilot SDK because the stock CLI has no hook that can switch the current turn's
+model. It keeps Copilot's agent runtime, tools, sessions, and logged-in GitHub authentication,
+but presents a smaller terminal frontend.
 
 ## Quick start
 
@@ -31,7 +33,17 @@ as-is. Without a Jev key you simply get plain Claude Code.
 Every argument is forwarded to `claude`, so `jev-claude -p "..."`, `jev-claude --resume` and
 the rest behave exactly as you expect.
 
-For OpenAI-compatible clients, add an OpenAI API key and run the matching wrapper:
+Copilot needs only the Jev key and your existing `copilot` login:
+
+```bash
+jev-copilot
+jev-copilot -p "fix the typo in src/app.ts"
+```
+
+No OpenAI key or BYOK configuration is used. Running `jev-copilot` means **Jev Auto** is on;
+run plain `copilot` for the stock interface and manual/native model selection.
+
+OpenCode and Codex currently use an OpenAI-compatible provider, so add that provider's key:
 
 ```bash
 cat > ~/.jev-router.env <<'EOF'
@@ -39,14 +51,12 @@ JEV_API_KEY=...
 OPENAI_API_KEY=...
 EOF
 jev-opencode
-jev-copilot
 jev-codex
 ```
 
 The wrappers use temporary, process-local provider overrides; they do not rewrite your
-OpenCode, Copilot, or Codex configuration. OpenCode and Codex can bypass routing by
-explicitly selecting another model. Copilot CLI's documented BYOK mode exposes one wire
-model per process, so `jev-copilot` owns model selection for that process.
+OpenCode or Codex configuration. Those clients can bypass routing by explicitly selecting
+another model.
 
 ## Using it
 
@@ -93,6 +103,21 @@ infer.
 Your credentials are never read, stored or modified. The proxy forwards the `authorization`
 header it receives without inspecting it.
 
+For Copilot, the official `@github/copilot-sdk` starts the Copilot agent runtime with
+`useLoggedInUser: true`. Its experimental `CopilotRequestHandler` receives each model-layer
+request after Copilot has attached its own authentication. `jev-copilot` changes only the
+request body's `model` field and transparently forwards the original URL, headers, and
+stream:
+
+```
+you -> jev-copilot frontend -> Copilot runtime -> request handler -> GitHub-hosted Copilot
+                                                        |
+                                                        +-> Jev: which tier?
+```
+
+This is deliberately not Copilot BYOK: `COPILOT_PROVIDER_*` and `OPENAI_API_KEY` are not
+required.
+
 ## Routing rules
 
 One Jev call per user turn selects a tier. `src/policy.mjs` then applies, in order:
@@ -127,15 +152,15 @@ main conversation.
 | `JEV_NO_STATUSLINE` | Set to `1` to stop injecting the status line. |
 | `JEV_DEBUG` | Logs every decision and rewrite. Interactive sessions write to `~/.jev-claude.log`, since stderr would corrupt Claude Code's UI; `-p` mode writes to stderr. |
 | `JEV_DUMP` | Path prefix for dumping request bodies, for debugging wire-format changes. |
-| `JEV_OPENAI_FAST_MODEL` | OpenAI-compatible model used for the cheapest tier. Defaults to `gpt-5.6-luna`. |
-| `JEV_OPENAI_BALANCED_MODEL` | Default OpenAI-compatible tier. Defaults to `gpt-5.6-terra`. |
-| `JEV_OPENAI_STRONG_MODEL` | Strong OpenAI-compatible tier. Defaults to `gpt-5.6-sol`. |
+| `JEV_OPENAI_FAST_MODEL` | Cheapest OpenAI-family model, including hosted Copilot. Defaults to `gpt-5.6-luna`. |
+| `JEV_OPENAI_BALANCED_MODEL` | Default OpenAI-family tier. Defaults to `gpt-5.6-terra`. |
+| `JEV_OPENAI_STRONG_MODEL` | Strong OpenAI-family tier. Defaults to `gpt-5.6-sol`. |
 | `JEV_OPENAI_LONG_MODEL` | Opt-in long-running tier. Defaults to `gpt-6-astra`. |
 | `JEV_OPENAI_BASE_URL` | Upstream OpenAI-compatible origin. Defaults to `https://api.openai.com`; useful for gateways and local testing. |
 
-The new wrappers read values from the environment, `~/.jev-router.env`,
-`~/.jev-claude.env`, and a `.env` in the launch directory, in increasing order of
-precedence. `jev-claude` continues to support its existing environment-file behavior.
+The new wrappers prefer existing environment variables, then a `.env` in the launch
+directory, `~/.jev-router.env`, and finally the legacy `~/.jev-claude.env`.
+`jev-claude` continues to support its existing environment-file behavior.
 
 Tier definitions, the Jev question, confidence thresholds and timeouts all live in
 `src/config.mjs`, which is the entire policy surface.
@@ -160,9 +185,9 @@ Three things the proxy has to handle, none of them documented:
 npm install
 echo "JEV_API_KEY=..." > .env
 
-npm test                     # 44 offline tests
+npm test                     # 55 offline tests
 node test/live-routing.mjs   # real Jev calls across four difficulty tiers
-node test/e2e-copilot.mjs    # real Copilot CLI + Jev, local fake model response
+node test/e2e-copilot.mjs    # real Jev + logged-in GitHub-hosted Copilot inference
 node bin/jev-claude.mjs -p "what is 2+2?"
 
 npm link                     # try the globally installed form
@@ -184,10 +209,14 @@ Opus.
   call of a session while TLS is established. Tool-loop requests add nothing.
 - Claude Code's request format is not a public contract. If a future version moves things
   around, `JEV_DUMP` is how you find out.
-- OpenCode, Copilot CLI, and Codex currently route OpenAI Responses or Chat Completions
-  traffic to `api.openai.com`; provider-specific protocols are not translated.
-- Copilot CLI uses its documented BYOK mode, so it needs `OPENAI_API_KEY` (or
-  `COPILOT_PROVIDER_API_KEY`) rather than the GitHub-hosted model entitlement.
+- OpenCode and Codex currently route OpenAI Responses or Chat Completions traffic to
+  `api.openai.com`; provider-specific protocols are not translated.
+- Copilot's stock terminal UI cannot install an SDK request handler. `jev-copilot` therefore
+  has a compact SDK frontend rather than the exact native TUI. It currently supports
+  interactive prompts, `-p`/`--prompt`, `--resume=<id>`, permission prompts, `--allow-all`, and
+  `/model`; use plain `copilot` for the complete native command and UI surface.
+- Copilot request interception is an experimental SDK API and may require maintenance as
+  the SDK evolves.
 - Developed and tested on Windows against Claude Code v2.1.101.
 
 ## License

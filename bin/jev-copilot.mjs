@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import { runOpenAIClient } from "../src/openai-cli.mjs";
+import { runCopilot } from "../src/copilot-cli.mjs";
 
-await runOpenAIClient("copilot");
+await runCopilot();

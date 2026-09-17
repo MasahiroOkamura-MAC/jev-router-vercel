@@ -10,6 +10,51 @@ test("reads new turns from Responses API input", () => {
   assert.equal(openAINewTurnPrompt(body), "fix the bug");
 });
 
+test("skips Copilot system reminders appended after the real prompt", () => {
+  assert.equal(
+    openAINewTurnPrompt({
+      tools: [{}],
+      input: [
+        {
+          role: "user",
+          content: [{
+            type: "input_text",
+            text: "<current_datetime>now</current_datetime>\n\nFix the bug",
+          }],
+        },
+        {
+          role: "user",
+          content: [{
+            type: "input_text",
+            text: "<system_reminder>deferred tools</system_reminder>",
+          }],
+        },
+      ],
+    }),
+    "Fix the bug",
+  );
+});
+
+test("finds a new Responses prompt after tool output from an earlier turn", () => {
+  assert.equal(
+    openAINewTurnPrompt({
+      tools: [{}],
+      input: [
+        { type: "function_call_output", call_id: "old", output: "done" },
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "Now fix the tests" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "<system_reminder>tools</system_reminder>" }],
+        },
+      ],
+    }),
+    "Now fix the tests",
+  );
+});
+
 test("ignores Responses API tool continuations", () => {
   const body = {
     tools: [{ type: "function", name: "shell" }],

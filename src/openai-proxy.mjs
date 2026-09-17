@@ -18,6 +18,12 @@ const textOf = (content) => {
     .join("\n");
 };
 
+const cleanPrompt = (text) =>
+  text
+    .replace(/<system[-_]reminder>[\s\S]*?<\/system[-_]reminder>/gi, "")
+    .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/gi, "")
+    .trim();
+
 /** User text that starts a new agent turn, or null for tool continuations and utility calls. */
 export function openAINewTurnPrompt(body) {
   if (!Array.isArray(body?.tools) || body.tools.length === 0) return null;
@@ -25,14 +31,18 @@ export function openAINewTurnPrompt(body) {
   if (Array.isArray(body.messages)) {
     const last = body.messages.at(-1);
     if (!last || last.role === "tool" || last.role !== "user") return null;
-    return textOf(last.content).trim() || null;
+    return cleanPrompt(textOf(last.content)) || null;
   }
 
-  if (typeof body.input === "string") return body.input.trim() || null;
+  if (typeof body.input === "string") return cleanPrompt(body.input) || null;
   if (!Array.isArray(body.input)) return null;
-  if (body.input.some((item) => item?.type === "function_call_output")) return null;
-  const last = [...body.input].reverse().find((item) => item?.role === "user");
-  return textOf(last?.content).trim() || null;
+  for (const item of [...body.input].reverse()) {
+    if (item?.type === "function_call_output") return null;
+    if (item?.role !== "user") continue;
+    const prompt = cleanPrompt(textOf(item.content));
+    if (prompt) return prompt;
+  }
+  return null;
 }
 
 export function applyOpenAITier(body, tier) {

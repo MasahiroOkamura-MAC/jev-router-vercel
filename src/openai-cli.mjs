@@ -6,10 +6,11 @@ import { startOpenAIProxy } from "./openai-proxy.mjs";
 import { AUTO_MODEL } from "./config.mjs";
 
 export function loadEnv() {
+  // loadEnvFile preserves variables that are already set, so load highest precedence first.
   for (const file of [
+    join(process.cwd(), ".env"),
     join(homedir(), ".jev-router.env"),
     join(homedir(), ".jev-claude.env"),
-    join(process.cwd(), ".env"),
   ]) {
     try {
       process.loadEnvFile(file);
@@ -65,15 +66,6 @@ const CLIENTS = {
   opencode: ({ baseURL, env, args }) => {
     env.OPENCODE_CONFIG_CONTENT = openCodeConfig(baseURL, env.OPENCODE_CONFIG_CONTENT);
     return ["--model", `openai/${AUTO_MODEL}`, ...args];
-  },
-  copilot: ({ baseURL, env, args }) => {
-    env.COPILOT_PROVIDER_TYPE = "openai";
-    env.COPILOT_PROVIDER_BASE_URL = baseURL;
-    env.COPILOT_PROVIDER_WIRE_API = "responses";
-    env.COPILOT_PROVIDER_MODEL_ID = process.env.JEV_OPENAI_BALANCED_MODEL ?? "gpt-5.6-terra";
-    env.COPILOT_PROVIDER_WIRE_MODEL = AUTO_MODEL;
-    env.COPILOT_PROVIDER_API_KEY ??= env.OPENAI_API_KEY;
-    return args;
   },
   codex: ({ baseURL, args }) => [
     "--model",
