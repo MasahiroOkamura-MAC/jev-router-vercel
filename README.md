@@ -107,6 +107,8 @@ main conversation.
 | `JEV_NO_STATUSLINE` | Set to `1` to stop injecting the status line. |
 | `JEV_DEBUG` | Logs every decision and rewrite. Interactive sessions write to `~/.jev-claude.log`, since stderr would corrupt Claude Code's UI; `-p` mode writes to stderr. |
 | `JEV_DUMP` | Path prefix for dumping request bodies, for debugging wire-format changes. |
+| `JEV_USAGE` | Set to `1` to append per-request token counts and cost to `~/.jev-claude-usage.jsonl` (override with `JEV_USAGE_FILE`). Off by default: it requires an uncompressed response stream. Summarise with `node bench/usage_report.mjs`. |
+| `JEV_FORCE_TIER` | Pins every routed request to one tier (`haiku`, `sonnet`, `opus`, `fable`), bypassing Jev. For evaluation harnesses that need to compare tiers on identical turns. |
 
 Values are read from the environment, from `~/.jev-claude.env`, and from a `.env` in the
 launch directory, in increasing order of precedence. Since `jev-claude` is normally installed

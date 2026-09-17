@@ -214,3 +214,26 @@ test("the key survives metadata that is not JSON", () => {
   const body = { metadata: { user_id: "not-json" }, messages: [{ role: "user", content: "hi" }] };
   assert.doesNotThrow(() => conversationKey(body));
 });
+
+import { forcedTier } from "../src/proxy.mjs";
+
+test("a pinned tier is honoured only when it names a real tier", () => {
+  const prior = process.env.JEV_FORCE_TIER;
+  try {
+    delete process.env.JEV_FORCE_TIER;
+    assert.equal(forcedTier(), null);
+    process.env.JEV_FORCE_TIER = "haiku";
+    assert.equal(forcedTier(), "haiku");
+    process.env.JEV_FORCE_TIER = "opus";
+    assert.equal(forcedTier(), "opus");
+    // A typo must not quietly fall through to normal routing: a benchmark would then compare
+    // a tier against itself and report no difference between them.
+    process.env.JEV_FORCE_TIER = "hiaku";
+    assert.equal(forcedTier(), null);
+    process.env.JEV_FORCE_TIER = "";
+    assert.equal(forcedTier(), null);
+  } finally {
+    if (prior === undefined) delete process.env.JEV_FORCE_TIER;
+    else process.env.JEV_FORCE_TIER = prior;
+  }
+});

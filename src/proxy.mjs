@@ -7,6 +7,7 @@ import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
 import { log } from "./log.mjs";
 import { writeStatus } from "./status.mjs";
+import { usageEnabled, usageRecord, recordUsage } from "./usage.mjs";
 
 const UPSTREAM = "api.anthropic.com";
 const debug = (line) => process.env.JEV_DEBUG && log(line);
@@ -34,6 +35,18 @@ export function sanitizeSchema(node) {
   }
   for (const v of Object.values(node)) sanitizeSchema(v);
 }
+
+/**
+ * The tier an evaluation harness has pinned, if any.
+ *
+ * Only a known tier name counts. A typo silently falling through to normal routing would make
+ * a benchmark compare a tier against itself and report no difference, so an unrecognised value
+ * is treated as unset.
+ */
+export const forcedTier = () => {
+  const name = process.env.JEV_FORCE_TIER;
+  return name && tierSpec(name) ? name : null;
+};
 
 /**
  * The text of a genuinely new user turn, or null.
@@ -160,10 +173,15 @@ export async function startProxy() {
     req.on("data", (c) => chunks.push(c));
     req.on("end", async () => {
       let out = Buffer.concat(chunks);
+      // Carried into the response handler so the ledger can attribute tokens to the routing
+      // decision that produced them.
+      const meta = { messages: /^\/v1\/messages/.test(req.url ?? ""), routed: false, requested: null, tier: null, reason: null, session: "", key: null };
 
-      if (/^\/v1\/messages/.test(req.url ?? "")) {
+      if (meta.messages) {
         try {
           const body = JSON.parse(out.toString());
+          meta.requested = body.model ?? null;
+          meta.session = sessionOf(body);
           // Claude Code's request shape is undocumented and moves; JEV_DUMP captures it.
           if (process.env.JEV_DUMP) {
             writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
@@ -183,11 +201,20 @@ export async function startProxy() {
           } else {
             const key = conversationKey(body);
             const state = stateFor(key);
+            meta.routed = true;
+            meta.key = key;
             // What the prompt cache was built on, which is what a downgrade would discard.
             const current = state.tier ?? "sonnet";
             const prompt = newTurnPrompt(body);
             let fresh = null;
-            if (prompt) {
+            // Evaluation harnesses need to pin a tier to compare tiers on identical turns.
+            // Done here, rather than via `claude --model`, because Claude Code silently
+            // falls back to Sonnet for aliases a subscription cannot select.
+            const forced = forcedTier();
+            if (forced) {
+              state.tier = forced;
+              fresh = { confidence: null, reason: "forced" };
+            } else if (prompt) {
               const available = availableTiers();
               const contextTokens = Math.round(JSON.stringify(body.messages).length / 4);
               const jev = await askJev({ prompt, current, contextTokens, available });
@@ -204,6 +231,8 @@ export async function startProxy() {
             const tier = state.tier ?? current;
             debug(`${key} rewrite ${body.model} -> ${idOf(tier)}`);
             applyTier(body, tier);
+            meta.tier = tier;
+            meta.reason = fresh?.reason ?? "pinned";
             // Publish what went out. Claude Code's UI shows the row you picked, not the tier
             // it resolved to, so the status line is the only place this is visible.
             writeStatus(sessionOf(body), { tier, ...fresh, at: Date.now() });
@@ -216,9 +245,9 @@ export async function startProxy() {
 
       const headers = { ...req.headers, host: UPSTREAM };
       delete headers["content-length"];
-      // Under JEV_DEBUG, ask for an uncompressed stream so the model the API reports can be
-      // read back out of it. Not worth the bandwidth cost in normal operation.
-      if (process.env.JEV_DEBUG) delete headers["accept-encoding"];
+      // Both the model echo and token accounting need to read the response body, which is
+      // only possible uncompressed. Worth the bandwidth only when one of them is asked for.
+      if (process.env.JEV_DEBUG || usageEnabled()) delete headers["accept-encoding"];
       const upstream = https.request(
         { hostname: UPSTREAM, path: req.url, method: req.method, headers },
         (up) => {
@@ -234,6 +263,20 @@ export async function startProxy() {
               if (!m) return;
               seen = true;
               debug(`${up.statusCode} served by ${m[1]}`);
+            });
+          }
+          if (usageEnabled() && meta.messages) {
+            const seen = [];
+            up.on("data", (c) => seen.push(c));
+            up.on("end", () => {
+              const { messages, ...decision } = meta;
+              recordUsage(
+                usageRecord({
+                  text: Buffer.concat(seen).toString("utf8"),
+                  status: up.statusCode,
+                  ...decision,
+                }),
+              );
             });
           }
           up.pipe(res);
