@@ -1,10 +1,13 @@
 {
   "name": "jev-router",
   "version": "0.1.0",
-  "description": "Runs the real Claude Code CLI and routes each turn to the cheapest sufficient model using TypeSafe Jev",
+  "description": "Runs coding CLIs and routes each turn to the cheapest sufficient model using TypeSafe Jev",
   "type": "module",
   "bin": {
-    "jev-claude": "bin/jev-claude.mjs"
+    "jev-claude": "bin/jev-claude.mjs",
+    "jev-opencode": "bin/jev-opencode.mjs",
+    "jev-copilot": "bin/jev-copilot.mjs",
+    "jev-codex": "bin/jev-codex.mjs"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\""
@@ -17,6 +20,9 @@
   "keywords": [
     "claude",
     "claude-code",
+    "opencode",
+    "copilot",
+    "codex",
     "model-routing",
     "jev",
     "typesafe"
