@@ -29,6 +29,10 @@ const [code] = await once(child, "exit");
 
 assert.equal(code, 0, stderr);
 assert.match(stdout, /JEV_COPILOT_E2E_OK/);
-assert.match(stderr, /\[jev\] gpt-[^ ]+ p=\d\.\d{2}/, "Jev must select a hosted model");
+assert.match(
+  stderr,
+  /\[jev\] copilot \d+ms p=\d\.\d{2} gpt-[^ ]+/,
+  "Jev must select a hosted model",
+);
 assert.doesNotMatch(stderr, /routing failed|COPILOT_PROVIDER|OPENAI_API_KEY/);
-console.log(stderr.trim().split("\n")[0]);
+console.log(stderr.trim().split("\n").find((line) => line.startsWith("[jev] copilot ")));

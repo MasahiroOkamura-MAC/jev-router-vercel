@@ -10,10 +10,9 @@ Each turn goes to the cheapest model that can actually handle it, with the decis
 `/compact`, `/resume` and session handling are unchanged, because they are still Claude
 Code's.
 
-`jev-opencode` and `jev-codex` likewise launch their native CLIs. `jev-copilot` uses the
-official Copilot SDK because the stock CLI has no hook that can switch the current turn's
-model. It keeps Copilot's agent runtime, tools, sessions, and logged-in GitHub authentication,
-but presents a smaller terminal frontend.
+`jev-opencode`, `jev-codex`, and `jev-copilot` likewise launch their native CLIs. Copilot keeps
+its complete terminal interface, tools, sessions, extensions, and logged-in GitHub
+authentication.
 
 ## Quick start
 
@@ -41,7 +40,7 @@ jev-copilot -p "fix the typo in src/app.ts"
 ```
 
 No OpenAI key or BYOK configuration is used. Running `jev-copilot` means **Jev Auto** is on;
-run plain `copilot` for the stock interface and manual/native model selection.
+run plain `copilot` for manual/native model selection. Every Copilot CLI argument is forwarded.
 
 OpenCode and Codex currently use an OpenAI-compatible provider, so add that provider's key:
 
@@ -100,23 +99,27 @@ Claude Code does not validate model names behind a custom base URL, so the `jev-
 sentinel reaches the proxy as an exact "route this turn" signal rather than something to
 infer.
 
-Your credentials are never read, stored or modified. The proxy forwards the `authorization`
-header it receives without inspecting it.
+Your Claude credentials are never read, stored or modified. The proxy forwards the
+`authorization` header it receives without inspecting it.
 
-For Copilot, the official `@github/copilot-sdk` starts the Copilot agent runtime with
-`useLoggedInUser: true`. Its experimental `CopilotRequestHandler` receives each model-layer
-request after Copilot has attached its own authentication. `jev-copilot` changes only the
-request body's `model` field and transparently forwards the original URL, headers, and
-stream:
+Copilot has no equivalent base-URL override for GitHub-hosted inference. `jev-copilot`
+therefore starts a loopback HTTPS CONNECT proxy and launches the stock CLI with a temporary
+`HTTPS_PROXY`. A one-day certificate authority is generated for that process and supplied
+through `NODE_EXTRA_CA_CERTS`; it is never installed in the Windows trust store.
+
+Only `api.enterprise.githubcopilot.com` and `api.githubcopilot.com` are decrypted. Other
+connections are tunneled unchanged. The proxy changes the request body's `model` field and
+forwards the original URL, authentication headers, and response stream to GitHub:
 
 ```
-you -> jev-copilot frontend -> Copilot runtime -> request handler -> GitHub-hosted Copilot
-                                                        |
-                                                        +-> Jev: which tier?
+you -> stock Copilot CLI -> jev-copilot HTTPS proxy -> GitHub-hosted Copilot
+                                  |
+                                  +-> Jev: which tier?
 ```
 
 This is deliberately not Copilot BYOK: `COPILOT_PROVIDER_*` and `OPENAI_API_KEY` are not
-required.
+required. WebSocket Responses are disabled for the child process so the proxy only has to
+handle ordinary HTTP and SSE traffic.
 
 ## Routing rules
 
@@ -185,7 +188,7 @@ Three things the proxy has to handle, none of them documented:
 npm install
 echo "JEV_API_KEY=..." > .env
 
-npm test                     # 55 offline tests
+npm test                     # 56 offline tests
 node test/live-routing.mjs   # real Jev calls across four difficulty tiers
 node test/e2e-copilot.mjs    # real Jev + logged-in GitHub-hosted Copilot inference
 node bin/jev-claude.mjs -p "what is 2+2?"
@@ -211,12 +214,12 @@ Opus.
   around, `JEV_DUMP` is how you find out.
 - OpenCode and Codex currently route OpenAI Responses or Chat Completions traffic to
   `api.openai.com`; provider-specific protocols are not translated.
-- Copilot's stock terminal UI cannot install an SDK request handler. `jev-copilot` therefore
-  has a compact SDK frontend rather than the exact native TUI. It currently supports
-  interactive prompts, `-p`/`--prompt`, `--resume=<id>`, permission prompts, `--allow-all`, and
-  `/model`; use plain `copilot` for the complete native command and UI surface.
-- Copilot request interception is an experimental SDK API and may require maintenance as
-  the SDK evolves.
+- Copilot routing uses process-scoped TLS interception. The proxy necessarily sees Copilot
+  prompts and bearer tokens in memory while forwarding them, but never logs or stores them.
+  Its temporary certificate and private key are deleted when the wrapper exits.
+- While `jev-copilot` is running, Jev routing overrides Copilot's `/model` selection. Exit and
+  run plain `copilot` when you want manual or Copilot-native model routing.
+- Chaining through an existing corporate `HTTPS_PROXY` is not currently supported.
 - Developed and tested on Windows against Claude Code v2.1.101.
 
 ## License
