@@ -1,4 +1,4 @@
-import { TypeSafeClient } from "@typesafe-ai/sdk";
+import { fromGatewayAnswers, GATEWAY_MODEL, jevBackend, toGatewayQuestions } from "./backend.mjs";
 import {
   COMPLEXITY_MAX_SCORE,
   CONTEXT_WINDOW_TOKENS,
@@ -13,8 +13,10 @@ import { log } from "./log.mjs";
 // Built lazily because the constructor throws when no key is present, and a missing key
 // should degrade to "no routing", not stop the session from starting.
 let client;
-function getClient() {
-  client ??= new TypeSafeClient({
+async function getClient() {
+  if (client) return client;
+  const { TypeSafeClient } = await import("@typesafe-ai/sdk");
+  client = new TypeSafeClient({
     apiKey: process.env.JEV_API_KEY ?? process.env.TYPESAFE_API_KEY,
     timeout: THRESHOLDS.jevTimeoutMs,
     retry: { maxRetries: THRESHOLDS.jevMaxRetries, backoffInitialMs: 150, backoffMaxMs: 400 },
@@ -24,6 +26,28 @@ function getClient() {
 }
 
 /**
+ * Same question set through Vercel AI Gateway. The AI SDK has no per-attempt timeout, so the
+ * caller's deadline signal is the only clock; the result is trimmed to what the status file
+ * and the policy layer read, because the raw one drags response headers along.
+ */
+async function evaluateViaGateway(request, signal) {
+  const { experimental_evaluate: evaluate } = await import("ai");
+  const result = await evaluate({
+    model: GATEWAY_MODEL,
+    state: request.state,
+    questions: toGatewayQuestions(request.questions),
+    maxRetries: THRESHOLDS.jevMaxRetries,
+    abortSignal: signal,
+  });
+  return { answers: fromGatewayAnswers(result.answers), usage: result.usage };
+}
+
+const BACKENDS = {
+  typesafe: async (request, signal) => (await getClient()).systemOne(request, { signal }),
+  gateway: evaluateViaGateway,
+};
+
+/**
  * Asks Jev which tier fits this prompt. Returns null on any failure, which the policy
  * layer reads as "keep the current model" — routing must never block a prompt.
  *
@@ -31,6 +55,8 @@ function getClient() {
  */
 export async function askJev({ prompt, current, contextTokens, models }) {
   if (!models?.length) return null;
+  const backend = jevBackend();
+  if (!backend) return null;
   const started = Date.now();
   const abort = new AbortController();
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
@@ -43,10 +69,11 @@ export async function askJev({ prompt, current, contextTokens, models }) {
     questions: { ...QUESTIONS, model: questionForModels(models) },
   };
   try {
-    const result = await getClient().systemOne(request, { signal: abort.signal });
+    const result = await BACKENDS[backend](request, abort.signal);
     const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
       ...answer,
+      backend,
       request,
       response: result,
       metrics: {

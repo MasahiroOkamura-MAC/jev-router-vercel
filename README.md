@@ -1,4 +1,9 @@
-# jev-router
+# jev-router (Vercel AI Gateway edition)
+
+> Fork of [gargpratyush/jev-router](https://github.com/gargpratyush/jev-router) that can also
+> reach Jev through [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev). If you have
+> an `AI_GATEWAY_API_KEY`, you do not need a separate TypeSafe key. Everything else is
+> unchanged, and a TypeSafe `JEV_API_KEY` still works exactly as upstream.
 
 Automatic per-turn model routing for Claude Code and OpenAI Codex. Jev sends simple work to
 the fast tier and difficult work to the strong tier, while preserving each CLI's native
@@ -17,31 +22,44 @@ Requires Node.js 20.12+ and at least one supported CLI:
 [Claude Code](https://code.claude.com/docs/en/setup) or
 [OpenAI Codex](https://developers.openai.com/codex/cli).
 
-### 1. npm package
+### 1. Install from GitHub
+
+The `jev-router` package on npm is the upstream build without gateway support, so install
+this fork from its repository:
 
 ```bash
-npm install -g jev-router
-echo "JEV_API_KEY=..." > ~/.jev-router.env
+npm install -g github:MasahiroOkamura-MAC/jev-router-vercel
+echo "AI_GATEWAY_API_KEY=..." > ~/.jev-router.env
 ```
 
 ### 2. Local repository
 
 ```bash
-git clone https://github.com/gargpratyush/jev-router.git
-cd jev-router
+git clone https://github.com/MasahiroOkamura-MAC/jev-router-vercel.git
+cd jev-router-vercel
 npm install
 npm link
-echo "JEV_API_KEY=..." > ~/.jev-router.env
+echo "AI_GATEWAY_API_KEY=..." > ~/.jev-router.env
 ```
 
 On Windows PowerShell:
 
 ```powershell
-Set-Content "$HOME\.jev-router.env" "JEV_API_KEY=..."
+Set-Content "$HOME\.jev-router.env" "AI_GATEWAY_API_KEY=..."
 ```
 
-Get a key from [TypeSafe](https://docs.typesafe.ai). Then launch either interface from any
-repository:
+### Which key?
+
+| Key | Backend | Notes |
+| --- | --- | --- |
+| `AI_GATEWAY_API_KEY` | Vercel AI Gateway, model `typesafe-ai/jev` | Create one in the Vercel dashboard under AI Gateway. The gateway's free tier rate-limits Jev to a handful of requests, which a per-prompt router exhausts immediately; buy credits (pay-as-you-go, no plan upgrade) to lift the limit. |
+| `JEV_API_KEY` or `TYPESAFE_API_KEY` | TypeSafe API directly | Get one from [TypeSafe](https://docs.typesafe.ai). Same behaviour as upstream. |
+
+When both are present the TypeSafe key is used. Set `JEV_BACKEND=gateway` (or `typesafe`) to
+choose explicitly. Either way only the prompt text, the current model, and the list of
+available model ids are sent for the routing decision.
+
+Then launch either interface from any repository:
 
 ```bash
 jev-claude
@@ -153,7 +171,7 @@ available from any repository without separate setup.
 
 Codex's footer shows `jev-router` because it displays the selected picker entry,
 not the model chosen behind that provider. If Jev is unavailable, the commentary names the
-fallback model and explains how to set `JEV_API_KEY`.
+fallback model and explains which key to set.
 
 ## How it works
 
@@ -202,7 +220,9 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 
 | Variable | Interface | Effect |
 | --- | --- | --- |
-| `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
+| `AI_GATEWAY_API_KEY` | Both | Enables routing through Vercel AI Gateway. |
+| `JEV_API_KEY` | Both | Enables routing through TypeSafe directly. `TYPESAFE_API_KEY` also works. |
+| `JEV_BACKEND` | Both | `gateway` or `typesafe`. Only needed when both kinds of key are set. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
@@ -236,7 +256,7 @@ ids are used only until the CLI fetches its catalog.
 
 ```bash
 npm install
-echo "JEV_API_KEY=..." > .env
+echo "AI_GATEWAY_API_KEY=..." > .env   # or JEV_API_KEY=...
 
 npm test
 node test/live-routing.mjs

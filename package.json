@@ -1,14 +1,14 @@
 {
-  "name": "jev-router",
-  "version": "0.3.0",
-  "description": "Runs coding CLIs and routes each turn to the cheapest sufficient model using TypeSafe Jev",
+  "name": "jev-router-vercel",
+  "version": "0.3.0-vercel.1",
+  "description": "Fork of jev-router that can reach TypeSafe Jev through Vercel AI Gateway: routes each coding-CLI turn to the cheapest sufficient model",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gargpratyush/jev-router.git"
+    "url": "git+https://github.com/MasahiroOkamura-MAC/jev-router-vercel.git"
   },
-  "homepage": "https://github.com/gargpratyush/jev-router#readme",
-  "bugs": "https://github.com/gargpratyush/jev-router/issues",
+  "homepage": "https://github.com/MasahiroOkamura-MAC/jev-router-vercel#readme",
+  "bugs": "https://github.com/MasahiroOkamura-MAC/jev-router-vercel/issues",
   "bin": {
     "jev-claude": "bin/jev-claude.mjs",
     "jev-codex": "bin/jev-codex.mjs",
@@ -31,7 +31,9 @@
     "codex",
     "model-routing",
     "jev",
-    "typesafe"
+    "typesafe",
+    "vercel",
+    "ai-gateway"
   ],
   "engines": {
     "node": ">=20.12"
@@ -42,6 +44,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@typesafe-ai/sdk": "^0.6.0"
+    "@typesafe-ai/sdk": "^0.6.0",
+    "ai": "^7.0.107"
   }
 }

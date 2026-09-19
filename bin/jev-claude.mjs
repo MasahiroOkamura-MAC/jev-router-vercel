@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "../src/proxy.mjs";
+import { jevBackend, MISSING_KEY_HINT } from "../src/backend.mjs";
 import { AUTO_MODEL } from "../src/config.mjs";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
 import { LOG_FILE } from "../src/log.mjs";
@@ -122,7 +123,7 @@ if (!claude) {
   process.exit(1);
 }
 
-if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
+if (jevBackend()) {
   const { port, close } = await startProxy();
   env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
   env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
@@ -137,8 +138,8 @@ if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
   }
 } else {
   process.stderr.write(
-    `[jev] no JEV_API_KEY found - starting Claude Code without routing\n` +
-      `[jev] set it in ${join(homedir(), ".jev-claude.env")} to enable routing\n`,
+    `[jev] no Jev key found - starting Claude Code without routing\n` +
+      `[jev] add ${MISSING_KEY_HINT} to ${join(homedir(), ".jev-router.env")} to enable routing\n`,
   );
 }
 
