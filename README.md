@@ -18,7 +18,7 @@ Both commands launch the real upstream CLI. Jev only chooses the model for a fre
 
 ## Quick start
 
-Requires Node.js 20.12+ and at least one supported CLI:
+Requires a patched supported Node.js line (22.23.4+, 24.22.1+, or 26.12.1+) and at least one supported CLI:
 [Claude Code](https://code.claude.com/docs/en/setup) or
 [OpenAI Codex](https://developers.openai.com/codex/cli).
 
@@ -29,7 +29,7 @@ this fork from its repository:
 
 ```bash
 npm install -g github:MasahiroOkamura-MAC/jev-router-vercel
-echo "AI_GATEWAY_API_KEY=..." > ~/.jev-router.env
+(umask 077; printf '%s\n' 'AI_GATEWAY_API_KEY=...' > ~/.jev-router.env)
 ```
 
 ### 2. Local repository
@@ -39,7 +39,7 @@ git clone https://github.com/MasahiroOkamura-MAC/jev-router-vercel.git
 cd jev-router-vercel
 npm install
 npm link
-echo "AI_GATEWAY_API_KEY=..." > ~/.jev-router.env
+(umask 077; printf '%s\n' 'AI_GATEWAY_API_KEY=...' > ~/.jev-router.env)
 ```
 
 On Windows PowerShell:
@@ -130,24 +130,16 @@ the explanation skill does not ask Jev to score the prompt again.
 
 ### Explanation data location
 
-Both `jev-claude` and `jev-codex` keep up to 20 recent routing exchanges in one JSON file per
-CLI session under Node.js's operating-system temporary directory:
+Both interfaces retain up to 20 exact routing exchanges per session in
+`~/.jev-router/.secret/session-<session-id>.json`. The directory uses mode 700 and
+files use mode 600 on Unix. Writes replace files atomically; symlinks cannot redirect
+status or dump writes. Windows deployments require equivalent owner-only ACLs.
 
-| Platform | Default location |
-| --- | --- |
-| Windows | `%TEMP%\jev-claude\<session-id>.json` |
-| macOS | `$TMPDIR/jev-claude/<session-id>.json` (normally under `/var/folders/.../T`) |
-| Ubuntu/Linux | `${TMPDIR:-/tmp}/jev-claude/<session-id>.json` |
-
-Print the exact directory selected on the current machine with:
-
-```bash
-node -e "console.log(require('node:path').join(require('node:os').tmpdir(), 'jev-claude'))"
-```
-
-Claude filenames use Claude Code's session UUID. Codex filenames use
-`codex-<jev-codex-process-id>.json`. These temporary files contain prompt text and Jev's exact
-request and response; the operating system may remove them during normal temporary-file cleanup.
+These files contain prompt text and the routing request/response. They persist until
+removed by their owner; do not upload them or include them in support logs. Old releases
+used the OS temporary `jev-claude` directory and `~/.jev-claude.log`. Those historical
+files are not migrated or deleted automatically. Review their permissions, retention and
+access before coordinated cleanup, preserving incident evidence when needed.
 
 > Choosing a model with `Enter` can save it as Claude Code's default. `jev-claude` restores
 > the previous default on exit so `jev-auto` cannot break plain `claude`.
@@ -224,16 +216,23 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | `JEV_API_KEY` | Both | Enables routing through TypeSafe directly. `TYPESAFE_API_KEY` also works. |
 | `JEV_BACKEND` | Both | `gateway` or `typesafe`. Only needed when both kinds of key are set. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
-| `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
-| `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
+| `JEV_DEBUG` | Both | Logs metadata without prompt excerpts/raw errors to `~/.jev-router/.secret/diagnostic.log` in interactive sessions. |
+| `JEV_DUMP` | Both | Explicitly enables sensitive request dumps in `~/.jev-router/.secret/dump-*.json`; the value is no longer an arbitrary path prefix. |
+| `JEV_ALLOW_PROJECT_ENV` | Both | Set to `1` in the trusted process environment to read routing keys from a reviewed project `.env`. |
 | `JEV_NO_STATUSLINE` | Claude | Disables the injected Claude status line. |
 | `JEV_CODEX_FAST_MODEL` | Codex | Fast model; defaults to `gpt-5.6-luna`. |
 | `JEV_CODEX_BALANCED_MODEL` | Codex | Balanced model; defaults to `gpt-5.6-terra`. |
 | `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-5.6-sol`. |
 | `JEV_CODEX_LONG_MODEL` | Codex | Long model; defaults to `gpt-6-astra`. |
 
-Existing environment variables have highest precedence, followed by `.env` in the launch
-directory, `~/.jev-router.env`, and the legacy `~/.jev-claude.env`.
+Existing process variables have highest precedence, followed by `~/.jev-router.env` and
+the legacy `~/.jev-claude.env`. Project `.env` files are ignored unless
+`JEV_ALLOW_PROJECT_ENV=1` was explicitly set before launch; opted-in project routing keys
+then precede user files. Only the three routing credential names and `JEV_BACKEND` are
+read from files. Child execution, provider endpoints, PATH and diagnostics cannot be
+configured through those files. Set other supported knobs in the trusted launch environment.
+Protect credential files with owner-only permissions or Windows ACLs. Windows launchers require a native executable or PowerShell shim; batch-only `.cmd`/`.bat` launchers now fail closed to keep prompt arguments out of a command shell. Install the supported native CLI if only batch shims are available. The explanation
+skill now uses the CLI's normal command permissions instead of pre-approving arbitrary Node commands.
 
 Tier definitions, Jev's question, confidence thresholds, and timeouts live in `src/config.mjs`.
 Both launchers send Jev the exact models in the signed-in account's native catalog, so model
@@ -256,7 +255,8 @@ ids are used only until the CLI fetches its catalog.
 
 ```bash
 npm install
-echo "AI_GATEWAY_API_KEY=..." > .env   # or JEV_API_KEY=...
+# Optional live routing only: use a protected user credential file.
+# Unit tests use dummy local servers and do not need any key.
 
 npm test
 node test/live-routing.mjs
@@ -270,7 +270,11 @@ injection, and decision display.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- The HTTP proxies bind only to `127.0.0.1`; browser origins/fetch metadata and foreign Host headers are rejected. Request bodies over 32 MiB are rejected before routing, including chunked bodies. Very large legitimate turns must be reduced. These checks do not authenticate other local native processes; do not share the routing process with untrusted users.
+- Router recommendations select from known account models. They cannot grant tools, approve writes or change CLI permissions. Fetched documents/tool output remain untrusted data; model selection alone does not prevent prompt injection, tenant leakage or actions through the underlying CLI. Its sandbox/permissions and human approvals still apply.
+
+- Windows native integration and ACL equivalence still require validation on Windows; the local tests verify resolver policy and Unix permissions.
+- Routing sends the latest user prompt, current model, context-token count and available model IDs to TypeSafe or Vercel AI Gateway, depending on the configured backend. Upstream CLI traffic goes to its selected first-party API. Review provider data policies before using sensitive prompts.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.

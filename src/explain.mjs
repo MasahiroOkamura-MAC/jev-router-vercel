@@ -1,8 +1,9 @@
 const WIDTH = 33;
-const row = (text = "") => `│ ${text.slice(0, WIDTH - 2).padEnd(WIDTH - 2)} │`;
+const row = (text = "") => `│ ${terminalText(text).slice(0, WIDTH - 2).padEnd(WIDTH - 2)} │`;
 const metric = (value) => (Number.isFinite(value) ? value.toFixed(2) : "n/a");
+export const terminalText = value => String(value).replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 const wrapped = (label, value) => {
-  const words = `${label}${value}`.replace(/\s+/g, " ").trim().split(" ");
+  const words = terminalText(`${label}${value}`).replace(/\s+/g, " ").trim().split(" ");
   const lines = [];
   for (const word of words) {
     if (!lines.length || `${lines.at(-1)} ${word}`.length > WIDTH - 2) lines.push(word);

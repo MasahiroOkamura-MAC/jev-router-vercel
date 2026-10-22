@@ -1,5 +1,7 @@
+import { loadRoutingEnv } from "./env.mjs";
 import { spawn } from "node:child_process";
-import { accessSync, constants, copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync } from "node:fs";
+import { resolveCli } from "./cli-command.mjs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,39 +19,10 @@ export function installCodexSkill(home = homedir()) {
   return target;
 }
 
-export function loadEnv() {
-  for (const file of [
-    join(process.cwd(), ".env"),
-    join(homedir(), ".jev-router.env"),
-    join(homedir(), ".jev-claude.env"),
-  ]) {
-    try {
-      process.loadEnvFile(file);
-    } catch {
-      // Missing or unreadable; values may still come from the real environment.
-    }
-  }
-}
+export { loadRoutingEnv as loadEnv } from "./env.mjs";
 
 export function resolveCodex() {
-  const win = process.platform === "win32";
-  const exts = win ? [".exe", ".ps1", ".cmd", ".bat"] : [""];
-  for (const dir of (process.env.PATH ?? "").split(win ? ";" : ":")) {
-    if (!dir) continue;
-    for (const ext of exts) {
-      const file = join(dir.replace(/^"|"$/g, ""), `codex${ext}`);
-      try {
-        accessSync(file, constants.F_OK);
-        if (/\.ps1$/i.test(file)) {
-          return { file: "powershell.exe", prefix: ["-NoProfile", "-File", file], shell: false };
-        }
-        return { file, prefix: [], shell: /\.(cmd|bat)$/i.test(file) };
-      } catch {
-        // Not here; keep looking.
-      }
-    }
-  }
-  return null;
+  return resolveCli("codex");
 }
 
 export const codexArgs = (baseURL, args) => [
@@ -73,7 +46,7 @@ export const codexArgs = (baseURL, args) => [
 
 // Loads configuration, starts the optional routing proxy, and launches the Codex CLI.
 export async function runCodex() {
-  loadEnv();
+  loadRoutingEnv();
   try {
     installCodexSkill();
   } catch (err) {
@@ -83,7 +56,7 @@ export async function runCodex() {
   if (!command) {
     process.stderr.write(
       "[jev] OpenAI Codex is not installed, or `codex` is not on your PATH.\n" +
-        "[jev] jev-codex runs the real Codex CLI; install it first:\n" +
+        "[jev] jev-codex requires a native CLI or Windows PowerShell shim; batch-only shims are unsupported.\n" +
         "[jev]   https://developers.openai.com/codex/cli\n",
     );
     process.exitCode = 1;
@@ -108,8 +81,8 @@ export async function runCodex() {
   const childArgs = [...command.prefix, ...args];
   const child = spawn(
     command.file,
-    command.shell ? childArgs.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)) : childArgs,
-    { stdio: "inherit", shell: command.shell, env: process.env },
+    childArgs,
+    { stdio: "inherit", shell: false, env: process.env },
   );
   child.on("error", (err) => {
     close();

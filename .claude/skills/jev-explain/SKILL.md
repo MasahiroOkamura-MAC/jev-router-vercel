@@ -2,7 +2,6 @@
 name: jev-explain
 description: Show why Jev Router selected the model used for the last prompt.
 disable-model-invocation: true
-allowed-tools: Bash(node *)
 ---
 
 <jev-explain>

@@ -1,0 +1,31 @@
+name: local proxy security regressions
+on:
+  pull_request:
+  push:
+    branches: [security/local-proxy-privacy-20261022]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: local-proxy-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HUSKY: '0'
+      npm_config_ignore_scripts: 'true'
+      npm_config_registry: https://registry.npmjs.org
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run dummy-only tests without inherited credentials
+        run: |
+          mkdir -p "$RUNNER_TEMP/jev-test-home"
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/jev-test-home" CI=true npm_config_ignore_scripts=true npm test

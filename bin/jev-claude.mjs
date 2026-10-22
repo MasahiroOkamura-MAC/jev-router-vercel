@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import { loadRoutingEnv } from "../src/env.mjs";
+import { privateDirectory, writePrivateJson } from "../src/private-storage.mjs";
+import { statuslineCommand } from "../src/statusline-command.mjs";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, accessSync, constants } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { resolveCli } from "../src/cli-command.mjs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "../src/proxy.mjs";
@@ -60,54 +64,28 @@ function statusLineArgs() {
   }
   // Passed as a file rather than inline JSON: on Windows the args go through a shell, and a
   // JSON string containing its own quotes does not survive that.
-  const command = `"${process.execPath}" "${join(HERE, "jev-statusline.mjs")}"`;
-  const file = join(tmpdir(), "jev-claude", "settings.json");
+  const command = statuslineCommand(process.execPath, join(HERE, "jev-statusline.mjs"));
+  if (!command) return [];
+  const name = `settings-${process.pid}.json`;
+  let file;
   try {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command } }));
+    file = join(privateDirectory(), name);
+    writePrivateJson(name, { statusLine: { type: "command", command } });
   } catch {
     return [];
   }
   return ["--settings", file];
 }
 
-// Existing environment variables win, followed by project-local, shared user-level, then
-// the legacy Claude-specific file.
-for (const file of [
-  join(process.cwd(), ".env"),
-  join(homedir(), ".jev-router.env"),
-  join(homedir(), ".jev-claude.env"),
-]) {
-  try {
-    process.loadEnvFile(file);
-  } catch {
-    // Missing or unreadable; the key may still come from the real environment.
-  }
-}
+loadRoutingEnv();
 
 /**
  * Finds the Claude Code executable on PATH. Resolving it here rather than leaning on the
  * shell means arguments are passed as an array (no quoting hazard, no DEP0190 warning) and
  * a missing install produces a useful message instead of a shell error. Older npm-based
- * installs are a `.cmd` shim, which Node still refuses to run without a shell.
+ * installs need a native executable or PowerShell shim; batch-only installs fail closed.
  */
-function resolveClaude() {
-  const win = process.platform === "win32";
-  const exts = win ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
-  for (const dir of (process.env.PATH ?? "").split(win ? ";" : ":")) {
-    if (!dir) continue;
-    for (const ext of exts) {
-      const file = join(dir.replace(/^"|"$/g, ""), `claude${ext}`);
-      try {
-        accessSync(file, constants.X_OK);
-        return { file, shell: /\.(cmd|bat)$/i.test(file) };
-      } catch {
-        // Not here; keep looking.
-      }
-    }
-  }
-  return null;
-}
+const resolveClaude = () => resolveCli("claude");
 
 const args = process.argv.slice(2);
 args.push("--add-dir", ROOT);
@@ -117,7 +95,7 @@ const claude = resolveClaude();
 if (!claude) {
   process.stderr.write(
     "[jev] Claude Code is not installed, or `claude` is not on your PATH.\n" +
-      "[jev] jev-claude runs the real Claude Code CLI; install it first:\n" +
+      "[jev] jev-claude requires a native CLI or Windows PowerShell shim; batch-only shims are unsupported.\n" +
       "[jev]   https://code.claude.com/docs/en/setup\n",
   );
   process.exit(1);
@@ -143,10 +121,10 @@ if (jevBackend()) {
   );
 }
 
-// On Windows a `.cmd` shim still needs a shell; a real executable does not.
-const child = spawn(claude.file, claude.shell ? args.map((a) => (/\s/.test(a) ? `"${a}"` : a)) : args, {
+// Never pass prompt arguments through a command shell, including Windows batch shims.
+const child = spawn(claude.file, [...claude.prefix, ...args], {
   stdio: "inherit",
-  shell: claude.shell,
+  shell: false,
   env,
 });
 

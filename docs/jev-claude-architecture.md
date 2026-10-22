@@ -6,7 +6,7 @@ flowchart TB
 
   subgraph launcher["Launcher — bin/jev-claude.mjs"]
     direction TB
-    command --> env["Load environment\nprecedence: process env → .env → ~/.jev-router.env → ~/.jev-claude.env"]
+    command --> env["Load environment\nprecedence: process env → ~/.jev-router.env → ~/.jev-claude.env; project .env requires explicit opt-in"]
     env --> find["Find `claude` executable on PATH"]
     env --> saved["Read existing ~/.claude/settings.json model\nfor later restoration"]
     find --> key{"JEV_API_KEY / TYPESAFE_API_KEY\nor AI_GATEWAY_API_KEY?"}
@@ -16,7 +16,7 @@ flowchart TB
     proxyStart --> launchEnv["Set ANTHROPIC_BASE_URL to proxy\nExpose `jev-auto` as Jev Router in /model\nDefault to `jev-auto` unless user set ANTHROPIC_MODEL"]
     launchEnv --> statusCfg{"Status line allowed?"}
     statusCfg -- "No: JEV_NO_STATUSLINE or user statusLine" --> spawn
-    statusCfg -- Yes --> statusCfgFile["Write temporary Claude status-line settings"] --> spawn
+    statusCfg -- Yes --> statusCfgFile["Write private per-process Claude status-line settings"] --> spawn
     direct --> spawn["Spawn real Claude Code\nwith original CLI arguments"]
   end
 
@@ -45,7 +45,7 @@ flowchart TB
     policy --> saveTier["Pin chosen tier in conversation state"]
     saveTier --> pinned
     pinned --> rewrite["Rewrite `jev-auto` to Claude tier model ID\nStrip unsupported thinking / effort fields"]
-    rewrite --> publish["Write latest tier, confidence, and reason\nto per-session temp status file"]
+    rewrite --> publish["Write latest tier, confidence, and reason\nto private per-session status file"]
     pass --> forward
     publish --> forward["Forward request to api.anthropic.com\nPreserve Claude Code authorization headers\nstream upstream response unchanged"]
   end

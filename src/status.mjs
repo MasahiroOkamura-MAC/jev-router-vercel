@@ -1,36 +1,22 @@
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { writePrivateJson, readPrivateJson } from "./private-storage.mjs";
 
-// One file per session rather than a shared map, so concurrent jev-claude sessions can never
-// clobber each other's status. Kept in the temp dir so the OS eventually cleans up.
-const DIR = join(tmpdir(), "jev-claude");
+const validSession = id => typeof id === "string" && /^[\w-]{1,128}$/.test(id);
+const fileFor = id => `session-${id}.json`;
 
-const fileFor = (sessionId) => join(DIR, `${sessionId.replace(/[^\w-]/g, "")}.json`);
-
-/** Publish the latest routing decision so the status line can display it. */
 export function writeStatus(sessionId, status) {
-  if (!sessionId) return;
-  try {
-    mkdirSync(DIR, { recursive: true });
-    writeFileSync(fileFor(sessionId), JSON.stringify(status));
-  } catch {
-    // Status display is cosmetic and must never interfere with a request.
+  if (!validSession(sessionId)) return;
+  try { writePrivateJson(fileFor(sessionId), status); } catch {
+    // Status display must not interfere with a request; fail closed on unsafe storage.
   }
 }
 
-/** Publish a routed prompt and retain recent exact Jev exchanges for diagnosis. */
 export function writeDecision(sessionId, decision) {
   const previous = readStatus(sessionId);
   const history = [...(previous?.history ?? []), decision].slice(-20);
   writeStatus(sessionId, { ...decision, history });
 }
 
-/** Latest routing decision for a session, or null if none has been made yet. */
 export function readStatus(sessionId) {
-  try {
-    return JSON.parse(readFileSync(fileFor(sessionId), "utf8"));
-  } catch {
-    return null;
-  }
+  if (!validSession(sessionId)) return null;
+  try { return readPrivateJson(fileFor(sessionId)); } catch { return null; }
 }

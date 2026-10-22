@@ -38,7 +38,7 @@ test("shows the concrete provider model when available", () => {
   );
 });
 
-test("Claude skill pre-approves its read-only explanation command", () => {
+test("Claude explanation skill leaves execution subject to the normal tool policy", () => {
   const skill = readFileSync(new URL("../.claude/skills/jev-explain/SKILL.md", import.meta.url), "utf8");
-  assert.match(skill, /^allowed-tools: Bash\(node \*\)$/m);
+  assert.doesNotMatch(skill, /^allowed-tools:/m);
 });
