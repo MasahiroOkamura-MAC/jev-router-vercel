@@ -2,6 +2,7 @@
 // Status line for Claude Code. Claude Code pipes session JSON on stdin and renders whatever
 // this prints. See https://code.claude.com/docs/en/statusline
 import { readStatus } from "../src/status.mjs";
+import { terminalText } from "../src/explain.mjs";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
@@ -19,13 +20,13 @@ try {
 }
 
 const status = readStatus(input.session_id);
-const dir = (input.workspace?.current_dir ?? input.cwd ?? "").split(/[\\/]/).pop();
+const dir = terminalText((input.workspace?.current_dir ?? input.cwd ?? "").split(/[\\/]/).pop());
 const pct = Math.round(input.context_window?.used_percentage ?? 0);
 
 let routed = `${DIM}jev: waiting for first prompt${RESET}`;
 if (status?.manual) {
   // The user picked this model with /model, so show their choice rather than a tier.
-  routed = `${DIM}⏸ manual${RESET} ${input.model?.display_name ?? ""}`.trimEnd();
+  routed = `${DIM}⏸ manual${RESET} ${terminalText(input.model?.display_name ?? "")}`.trimEnd();
 } else if (status) {
   const color = COLOR[status.tier] ?? "";
   const p = status.confidence != null ? ` ${DIM}(p=${status.confidence.toFixed(2)})${RESET}` : "";
@@ -36,8 +37,8 @@ if (status?.manual) {
     status.reason !== "jev" &&
     status.reason !== "jev/no-change" &&
     !status.reason.includes("override");
-  const why = held ? ` ${DIM}(${status.reason.split("/")[0]})${RESET}` : "";
-  routed = `${color}${status.model ?? status.tier}${RESET}${p}${why}`;
+  const why = held ? ` ${DIM}(${terminalText(status.reason.split("/")[0])})${RESET}` : "";
+  routed = `${color}${terminalText(status.model ?? status.tier)}${RESET}${p}${why}`;
 }
 
 process.stdout.write(`${routed} ${DIM}·${RESET} ${dir} ${DIM}· ${pct}% context${RESET}\n`);

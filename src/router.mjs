@@ -85,7 +85,7 @@ export async function askJev({ prompt, current, contextTokens, models }) {
       ms: Date.now() - started,
     };
   } catch (err) {
-    log(`routing failed, keeping ${current}: ${err.message}`);
+    log("routing failed; keeping the current model");
     return null;
   } finally {
     clearTimeout(deadline);

@@ -1,7 +1,8 @@
 import http from "node:http";
 import https from "node:https";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { writeDiagnosticDump } from "./private-storage.mjs";
+import { allowLocalRequest, readLocalBody } from "./local-http.mjs";
 import {
   TIERS,
   tierOf,
@@ -181,29 +182,27 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
     return s;
   };
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
+    if (!allowLocalRequest(req, res)) return;
     // Claude Code probes the base URL before its first request.
     if (req.method === "HEAD") return res.writeHead(200).end();
 
-    const chunks = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", async () => {
-      let out = Buffer.concat(chunks);
+    let out = await readLocalBody(req, res);
+    if (out === null) return;
+    {
 
       if (/^\/v1\/messages/.test(req.url ?? "")) {
         try {
           const body = JSON.parse(out.toString());
           // Claude Code's request shape is undocumented and moves; JEV_DUMP captures it.
-          if (process.env.JEV_DUMP) {
-            writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
-          }
+          writeDiagnosticDump(body);
           body.tools?.forEach((t) => sanitizeSchema(t.input_schema));
 
           // Anything that is not the sentinel is a model the user chose, and an explicit
           // choice beats the router. That also covers Claude Code's own cheap Haiku calls
           // for titles and summaries, which must never be pinned up to the session's tier.
           if (!isAuto(body.model)) {
-            debug(`passthrough, user selected ${body.model}`);
+            debug("passthrough, user selected a model");
             // Only a real agent turn reflects the user's choice. Claude Code's own auxiliary
             // calls carry no tools and must not flip the status line to manual mid-session.
             if (Array.isArray(body.tools)) {
@@ -252,7 +251,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               };
               debug(
                 `${key} ${jev ? `${jev.ms}ms p=${jev.confidence.toFixed(2)}` : "no-jev"} ` +
-                  `${current} -> ${tier} (${reason}) ctx~${contextTokens} | ${prompt.slice(0, 60)}`,
+                  `${current} -> ${tier} (${reason}) ctx~${contextTokens}`,
               );
             }
             // The sentinel is not a real model, so every routed request must be rewritten,
@@ -269,7 +268,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
           }
           out = Buffer.from(JSON.stringify(body));
         } catch (err) {
-          debug(`passthrough, could not process body: ${err.message}`);
+          debug(`passthrough, could not process body: request processing failed`);
         }
       }
 
@@ -303,7 +302,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                   if (tierOf(model?.id)) catalog.set(model.id, model);
                 }
               } catch (err) {
-                debug(`could not read Claude model catalog: ${err.message}`);
+                debug(`could not read Claude model catalog: request processing failed`);
               }
               const headers = { ...up.headers };
               delete headers["content-length"];
@@ -323,20 +322,20 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               const m = /"model"\s*:\s*"([^"]+)"/.exec(c.toString("utf8"));
               if (!m) return;
               seen = true;
-              debug(`${up.statusCode} served by ${m[1]}`);
+              debug("received upstream model marker");
             });
           }
           up.pipe(res);
         },
       );
       upstream.on("error", (e) => {
-        debug(`upstream error: ${e.message}`);
+        debug(`upstream error: upstream request failed`);
         if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-        res.end(JSON.stringify({ type: "error", error: { message: e.message } }));
+        res.end(JSON.stringify({ type: "error", error: { message: "Upstream request failed" } }));
       });
       if (out.length) upstream.write(out);
       upstream.end();
-    });
+    }
   });
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

@@ -1,7 +1,8 @@
 import http from "node:http";
 import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { writeDiagnosticDump } from "./private-storage.mjs";
+import { allowLocalRequest, readLocalBody } from "./local-http.mjs";
 import { availableTiers, shouldUseExactModel } from "./config.mjs";
 import { MISSING_KEY_HINT } from "./backend.mjs";
 import { askJev } from "./router.mjs";
@@ -174,18 +175,16 @@ export async function startCodexProxy({
   const states = new Map();
   const models = new Map();
 
-  const server = http.createServer((req, res) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", async () => {
-      let out = Buffer.concat(chunks);
+  const server = http.createServer(async (req, res) => {
+    if (!allowLocalRequest(req, res)) return;
+    let out = await readLocalBody(req, res);
+    if (out === null) return;
+    {
       let routing;
       if (req.method === "POST" && /\/responses(?:\?|$)/.test(req.url ?? "")) {
         try {
           const body = JSON.parse(out.toString());
-          if (process.env.JEV_DUMP) {
-            writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
-          }
+          writeDiagnosticDump(body);
           if (body.model === CODEX_AUTO_MODEL) {
             const key = codexConversationKey(body);
             const candidates = codexModels(models).filter((model) =>
@@ -228,7 +227,7 @@ export async function startCodexProxy({
                 at: Date.now(),
               };
               writeDecision(statusId, routing);
-              debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${prompt.slice(0, 60)}`);
+              debug(`${key} ${current} -> ${tier} (${decision.reason})`);
             }
             applyCodexTier(body, tier, models, model);
           } else {
@@ -238,7 +237,7 @@ export async function startCodexProxy({
           }
           out = Buffer.from(JSON.stringify(body));
         } catch (err) {
-          debug(`codex passthrough, could not process body: ${err.message}`);
+          debug(`codex passthrough, could not process body: request processing failed`);
         }
       }
 
@@ -269,7 +268,7 @@ export async function startCodexProxy({
                 data = Buffer.from(JSON.stringify(catalog));
                 delete responseHeaders["content-length"];
               } catch (err) {
-                debug(`could not extend Codex model catalog: ${err.message}`);
+                debug(`could not extend Codex model catalog: request processing failed`);
               }
               res.writeHead(response.statusCode, responseHeaders);
               res.end(data);
@@ -310,13 +309,13 @@ export async function startCodexProxy({
         },
       );
       upstream.on("error", (err) => {
-        debug(`codex upstream error: ${err.message}`);
+        debug(`codex upstream error: request processing failed`);
         if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: { message: err.message, type: "proxy_error" } }));
+        res.end(JSON.stringify({ error: { message: "Upstream request failed", type: "proxy_error" } }));
       });
       if (out.length) upstream.write(out);
       upstream.end();
-    });
+    }
   });
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
