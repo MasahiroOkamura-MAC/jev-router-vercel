@@ -53,10 +53,16 @@ Set-Content "$HOME\.jev-router.env" "AI_GATEWAY_API_KEY=..."
 | Key | Backend | Notes |
 | --- | --- | --- |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway, model `typesafe-ai/jev` | Create one in the Vercel dashboard under AI Gateway. The gateway's free tier rate-limits Jev to a handful of requests, which a per-prompt router exhausts immediately; buy credits (pay-as-you-go, no plan upgrade) to lift the limit. |
+| `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` | Cloudflare Workers AI, model `typesafe/jev` | Token must have Workers AI access for the configured account. Uses Cloudflare unified billing. |
 | `JEV_API_KEY` or `TYPESAFE_API_KEY` | TypeSafe API directly | Get one from [TypeSafe](https://docs.typesafe.ai). Same behaviour as upstream. |
 
-When both are present the TypeSafe key is used. Set `JEV_BACKEND=gateway` (or `typesafe`) to
-choose explicitly. Either way only the prompt text, the current model, and the list of
+When multiple credentials are present, TypeSafe takes precedence, followed by Gateway, then
+Cloudflare. Set `JEV_BACKEND=cloudflare`, `gateway`, or `typesafe` to choose explicitly. A forced
+backend with missing credentials disables routing and reports the missing variable names.
+Cloudflare sends `{state, questions}` directly to the Workers AI REST endpoint; typed answers
+and probabilities are converted to the router format under the existing routing deadline.
+Only switch to Cloudflare after a successful live evaluation; HTTP errors keep the current model.
+In every backend, only the prompt text, the current model, and the list of
 available model ids are sent for the routing decision.
 
 Then launch either interface from any repository:
@@ -222,7 +228,8 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | --- | --- | --- |
 | `AI_GATEWAY_API_KEY` | Both | Enables routing through Vercel AI Gateway. |
 | `JEV_API_KEY` | Both | Enables routing through TypeSafe directly. `TYPESAFE_API_KEY` also works. |
-| `JEV_BACKEND` | Both | `gateway` or `typesafe`. Only needed when both kinds of key are set. |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Both | Account and Bearer token for Cloudflare Workers AI. |
+| `JEV_BACKEND` | Both | `cloudflare`, `gateway`, or `typesafe`. Selects the backend explicitly. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |

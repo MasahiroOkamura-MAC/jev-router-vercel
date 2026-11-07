@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "../src/proxy.mjs";
-import { jevBackend, MISSING_KEY_HINT } from "../src/backend.mjs";
+import { jevBackend, missingKeyHint } from "../src/backend.mjs";
 import { AUTO_MODEL } from "../src/config.mjs";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
 import { LOG_FILE } from "../src/log.mjs";
@@ -139,7 +139,7 @@ if (jevBackend()) {
 } else {
   process.stderr.write(
     `[jev] no Jev key found - starting Claude Code without routing\n` +
-      `[jev] add ${MISSING_KEY_HINT} to ${join(homedir(), ".jev-router.env")} to enable routing\n`,
+      `[jev] add ${missingKeyHint()} to ${join(homedir(), ".jev-router.env")} to enable routing\n`,
   );
 }
 

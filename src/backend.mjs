@@ -1,21 +1,21 @@
-// Jev is reachable two ways: TypeSafe's own API (JEV_API_KEY / TYPESAFE_API_KEY) or Vercel AI
-// Gateway (AI_GATEWAY_API_KEY), which serves the same model as `typesafe-ai/jev`. Everything
+// Jev is reachable through TypeSafe, Vercel AI Gateway, or Cloudflare Workers AI. Everything
 // that depends on which one is in use lives here, so the router and launchers stay agnostic.
 
 export const GATEWAY_MODEL = "typesafe-ai/jev";
 
-const BACKENDS = ["typesafe", "gateway"];
+const BACKENDS = ["typesafe", "gateway", "cloudflare"];
 
 /**
  * Which Jev backend to call, or null when no usable key is present. A TypeSafe key wins when
  * both are set so upstream setups behave exactly as before; `JEV_BACKEND` overrides that.
  *
- * @returns {?("typesafe"|"gateway")}
+ * @returns {?("typesafe"|"gateway"|"cloudflare")}
  */
 export function jevBackend(env = process.env) {
   const has = {
     typesafe: Boolean(env.JEV_API_KEY || env.TYPESAFE_API_KEY),
     gateway: Boolean(env.AI_GATEWAY_API_KEY),
+    cloudflare: Boolean(env.CLOUDFLARE_ACCOUNT_ID?.trim() && env.CLOUDFLARE_API_TOKEN?.trim()),
   };
   const forced = env.JEV_BACKEND?.toLowerCase();
   if (BACKENDS.includes(forced)) return has[forced] ? forced : null;
@@ -23,7 +23,16 @@ export function jevBackend(env = process.env) {
 }
 
 /** Shown when routing is off because no key was found. */
-export const MISSING_KEY_HINT = "JEV_API_KEY=... (TypeSafe) or AI_GATEWAY_API_KEY=... (Vercel AI Gateway)";
+export const MISSING_KEY_HINT = "JEV_API_KEY=... (TypeSafe), AI_GATEWAY_API_KEY=... (Vercel AI Gateway), or CLOUDFLARE_ACCOUNT_ID=... and CLOUDFLARE_API_TOKEN=... (Cloudflare Workers AI)";
+
+export function missingKeyHint(env = process.env) {
+  if (env.JEV_BACKEND?.toLowerCase() !== "cloudflare") return MISSING_KEY_HINT;
+  const missing = ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]
+    .filter((name) => !env[name]?.trim())
+    .map((name) => `${name}=... (missing for JEV_BACKEND=cloudflare)`)
+    .join(" and ");
+  return missing || "CLOUDFLARE_ACCOUNT_ID=... and CLOUDFLARE_API_TOKEN=... (Cloudflare Workers AI)";
+}
 
 const asText = (value) => {
   if (typeof value === "string") return value;

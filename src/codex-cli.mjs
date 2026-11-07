@@ -3,7 +3,7 @@ import { accessSync, constants, copyFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { jevBackend, MISSING_KEY_HINT } from "./backend.mjs";
+import { jevBackend, missingKeyHint } from "./backend.mjs";
 import { CODEX_AUTO_MODEL, startCodexProxy } from "./codex-proxy.mjs";
 
 const PROVIDER = "jev";
@@ -101,7 +101,7 @@ export async function runCodex() {
   } else {
     process.stderr.write(
       "[jev] no Jev key found - starting Codex without routing\n" +
-        `[jev] add ${MISSING_KEY_HINT} to ${join(homedir(), ".jev-router.env")} and restart jev-codex\n`,
+        `[jev] add ${missingKeyHint()} to ${join(homedir(), ".jev-router.env")} and restart jev-codex\n`,
     );
   }
 

@@ -135,7 +135,9 @@ test("surfaces routing as a native commentary event", () => {
     reason: "jev-unavailable/no-change",
   });
   assert.match(unavailable, /JEV_API_KEY=\.\.\./);
-  assert.match(unavailable, /AI_GATEWAY_API_KEY=\.\.\. \(Vercel AI Gateway\) to ~\/\.jev-router\.env/);
+  assert.match(unavailable, /AI_GATEWAY_API_KEY=\.\.\. \(Vercel AI Gateway\)/);
+  assert.match(unavailable, /CLOUDFLARE_ACCOUNT_ID=\.\.\. and CLOUDFLARE_API_TOKEN=\.\.\./);
+  assert.match(unavailable, /to ~\/\.jev-router\.env/);
   assert.match(unavailable, /using gpt-5\.6-terra/);
 });
 

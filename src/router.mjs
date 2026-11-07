@@ -1,4 +1,5 @@
-import { fromGatewayAnswers, GATEWAY_MODEL, jevBackend, toGatewayQuestions } from "./backend.mjs";
+import { fromGatewayAnswers, GATEWAY_MODEL, jevBackend, missingKeyHint, toGatewayQuestions } from "./backend.mjs";
+import { evaluateViaCloudflare } from "./cloudflare.mjs";
 import {
   COMPLEXITY_MAX_SCORE,
   CONTEXT_WINDOW_TOKENS,
@@ -45,6 +46,7 @@ async function evaluateViaGateway(request, signal) {
 const BACKENDS = {
   typesafe: async (request, signal) => (await getClient()).systemOne(request, { signal }),
   gateway: evaluateViaGateway,
+  cloudflare: evaluateViaCloudflare,
 };
 
 /**
@@ -56,7 +58,10 @@ const BACKENDS = {
 export async function askJev({ prompt, current, contextTokens, models }) {
   if (!models?.length) return null;
   const backend = jevBackend();
-  if (!backend) return null;
+  if (!backend) {
+    if (process.env.JEV_BACKEND?.toLowerCase() === "cloudflare") log(`routing unavailable: add ${missingKeyHint()}`);
+    return null;
+  }
   const started = Date.now();
   const abort = new AbortController();
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
