@@ -163,7 +163,7 @@ concrete model pauses routing; selecting **Jev Router** resumes it.
 Each fresh decision appears as Codex commentary:
 
 ```text
-[Jev] routed this turn to gpt-5.6-sol (jev, confidence 0.91).
+[Jev] routed this turn to gpt-6-sol (jev, confidence 0.91).
 ```
 
 `jev-codex` installs or refreshes the packaged `$jev-explain` skill when it starts, so it is
@@ -195,13 +195,13 @@ Any concrete model selected by the user passes through unchanged.
 
 ## Routing policy
 
-One Jev call per fresh user turn selects a shared abstract tier:
+One Jev call per fresh user turn selects an abstract tier. Codex offers three GPT-6 models:
 
 | Tier | Claude Code default | Codex default |
 | --- | --- | --- |
-| Fast | Haiku | `gpt-5.6-luna` |
-| Balanced | Sonnet | `gpt-5.6-terra` |
-| Strong | Opus | `gpt-5.6-sol` |
+| Fast | Haiku | `gpt-6-luna` |
+| Balanced | Sonnet | — (Codex uses Sol for routine and judgment-heavy work) |
+| Strong | Opus | `gpt-6-sol` |
 | Long | Fable | `gpt-6-astra` |
 
 `src/policy.mjs` then applies these rules:
@@ -227,16 +227,15 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
 | `JEV_NO_STATUSLINE` | Claude | Disables the injected Claude status line. |
-| `JEV_CODEX_FAST_MODEL` | Codex | Fast model; defaults to `gpt-5.6-luna`. |
-| `JEV_CODEX_BALANCED_MODEL` | Codex | Balanced model; defaults to `gpt-5.6-terra`. |
-| `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-5.6-sol`. |
+| `JEV_CODEX_FAST_MODEL` | Codex | Fast model; defaults to `gpt-6-luna`. |
+| `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-6-sol`. |
 | `JEV_CODEX_LONG_MODEL` | Codex | Long model; defaults to `gpt-6-astra`. |
 
 Existing environment variables have highest precedence, followed by `.env` in the launch
 directory, `~/.jev-router.env`, and the legacy `~/.jev-claude.env`.
 
 Tier definitions, Jev's question, confidence thresholds, and timeouts live in `src/config.mjs`.
-Both launchers send Jev the exact models in the signed-in account's native catalog, so model
+Both launchers send Jev the configured models available in the signed-in account's native catalog, so model
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
 

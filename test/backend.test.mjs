@@ -35,7 +35,29 @@ test("questions are flattened to the plain strings the AI SDK evaluation spec ta
   assert.match(out.model.instructions, /cheapest exact model[\s\S]*separate choices/);
   assert.deepEqual(Object.keys(out.model.criteria), models.map((m) => m.id));
   for (const text of Object.values(out.model.criteria)) assert.equal(typeof text, "string");
-  assert.match(out.model.criteria["claude-opus-5"], /model: Opus 5\. what: Hard reasoning.*not_for: Routine work/);
+  assert.match(
+    out.model.criteria["claude-opus-5"],
+    /model: Opus 5\. what: Ordinary and substantial engineering.*not_for: The most demanding/,
+  );
+});
+
+test("model guidance reserves Astra for demanding work and keeps cheaper tiers bounded", () => {
+  const models = [
+    { id: "gpt-6-luna", tier: "haiku" },
+    { id: "gpt-6-sol", tier: "opus" },
+    { id: "gpt-6-astra", tier: "fable" },
+  ];
+  const question = toGatewayQuestions({ model: questionForModels(models) }).model;
+  assert.match(question.instructions, /fable-tier model.*advanced or novel reasoning/);
+  assert.match(question.instructions, /multiple domains/);
+  assert.match(question.instructions, /high-risk or high-blast-radius/);
+  assert.match(question.instructions, /whole-repository migrations/);
+  assert.match(question.instructions, /multi-hour autonomous work/);
+  assert.match(question.instructions, /Keep simple, ordinary, and bounded substantial work.*cheaper/);
+  assert.match(question.criteria["gpt-6-astra"], /advanced reasoning, multi-domain ambiguity, or high blast radius/);
+  assert.match(question.criteria["gpt-6-astra"], /Several interacting architecture, security, data, product, or operations decisions/);
+  assert.match(question.criteria["gpt-6-sol"], /within one primary domain/);
+  assert.doesNotMatch(question.criteria["gpt-6-sol"], /Whole-repo migration/);
 });
 
 test("gateway choice answers gain the confidence the policy layer reads", () => {

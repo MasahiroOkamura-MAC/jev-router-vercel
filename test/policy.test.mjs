@@ -36,6 +36,92 @@ test("detectOverride only fires on a real instruction", () => {
   assert.equal(detectOverride("the opus of his career"), null);
 });
 
+test("detectOverride recognises Japanese Astra instructions", () => {
+  for (const prompt of [
+    "Astraを使って",
+    "Astraで実装して",
+    "Astraにして",
+    "Astraを選んで",
+    "今回はアストラを使ってください",
+    "このタスクはAstraで進めてください",
+    "今回はAstraを使ってください。",
+  ]) {
+    assert.equal(detectOverride(prompt), "fable", prompt);
+  }
+});
+
+test("Japanese override detection does not match incidental Astra text", () => {
+  assert.equal(detectOverride("Astraについて説明して"), null);
+  assert.equal(detectOverride("nonastraを使って"), null);
+});
+
+test("detectOverride recognises explicit Japanese instructions for every tier", () => {
+  const cases = [
+    ["Lunaを使って", "haiku"],
+    ["ルナで実装して", "haiku"],
+    ["Terraにして", "sonnet"],
+    ["テラで作業して", "sonnet"],
+    ["Solを選んで", "opus"],
+    ["ソルで進めて", "opus"],
+    ["Astraで作業して", "fable"],
+    ["Astraで進めて", "fable"],
+    ["Astraで対応して", "fable"],
+    ["Astraでやって", "fable"],
+    ["Astraでお願い", "fable"],
+  ];
+  for (const [prompt, tier] of cases) assert.equal(detectOverride(prompt), tier, prompt);
+});
+
+test("Japanese override detection rejects questions, comparison, quotation, and explanation", () => {
+  for (const prompt of [
+    "Astraを使ってはいけない",
+    "Astraで実装してほしくない",
+    "Astraで実装している場合を説明して",
+    "`Astraで実装して`という文字列",
+    "「Astraで実装して」という指定例",
+    "Astraで実装してもらえますか？",
+    "Astraでは何ができますか",
+    "Astraでも対応可能？",
+    "Astraで利用できる機能を説明して",
+    "AstraとSolを比較して",
+    "『Astraで実装して』という文を引用して",
+    "Lunaでは何ができますか",
+    "Terraでも対応可能？",
+    "Solで利用できる機能を説明して",
+  ]) {
+    assert.equal(detectOverride(prompt), null, prompt);
+  }
+});
+
+test("quoted and code examples never become overrides", () => {
+  for (const prompt of [
+    "```text\nAstraで実装して\n```",
+    "```text\nuse astra\n```",
+    "`use astra`",
+    "「use astra」という指定例",
+    "“Astraで実装して”",
+    '"Astraで実装して"',
+    "'Astraで実装して'",
+    "`switch to opus`",
+  ]) assert.equal(detectOverride(prompt), null, prompt);
+  assert.equal(detectOverride("`use luna` は例です。このタスクはAstraで進めてください"), "fable");
+});
+
+test("guard preserves English aliases and rejects Japanese negation across tiers", () => {
+  for (const [tier, aliases] of [
+    ["haiku", ["haiku", "fast", "luna"]],
+    ["sonnet", ["sonnet", "balanced", "terra"]],
+    ["opus", ["opus", "strong", "sol"]],
+    ["fable", ["fable", "long", "astra"]],
+  ]) {
+    for (const alias of aliases) {
+      assert.equal(detectOverride(`use ${alias} to implement this`), tier);
+      assert.equal(detectOverride(`${alias}で実装して`), tier);
+      assert.equal(detectOverride(`${alias}で実装してほしくない`), null);
+    }
+  }
+});
+
 test("keeps the current model when Jev is unreachable", () => {
   const out = decide({ ...base, jev: null });
   assert.equal(out.tier, "sonnet");

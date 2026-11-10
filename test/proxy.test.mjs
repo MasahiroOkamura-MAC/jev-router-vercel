@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { lstatSync } from "node:fs";
 import {
   sanitizeSchema,
   newTurnPrompt,
@@ -22,7 +23,13 @@ test("the sentinel is not mistaken for a real tier", () => {
   assert.equal(tierOf("jev-router"), null);
 });
 import { tierOf, isAuto } from "../src/config.mjs";
-import { writeDecision, writeStatus, readStatus } from "../src/status.mjs";
+import {
+  STATUS_DIR,
+  readStatus,
+  statusFileFor,
+  writeDecision,
+  writeStatus,
+} from "../src/status.mjs";
 
 test("reads the session id out of Claude Code's metadata", () => {
   const sid = "11111111-2222-4333-8444-555555555555";
@@ -37,6 +44,13 @@ test("status round-trips per session and misses cleanly", () => {
   assert.deepEqual(readStatus(sid), { tier: "opus", confidence: 0.87, reason: "jev" });
   assert.equal(readStatus("no-such-session"), null);
   assert.doesNotThrow(() => writeStatus("", { tier: "opus" }));
+});
+
+test("routing status directory and files are private", () => {
+  const sid = `permissions-${process.pid}`;
+  writeStatus(sid, { prompt: "private prompt" });
+  assert.equal(lstatSync(STATUS_DIR).mode & 0o777, 0o700);
+  assert.equal(lstatSync(statusFileFor(sid)).mode & 0o777, 0o600);
 });
 
 test("routing status retains the exact recent Jev exchanges", () => {

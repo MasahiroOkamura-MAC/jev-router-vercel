@@ -83,19 +83,53 @@ const COMPLEXITY_SCALE = [
 
 export const COMPLEXITY_MAX_SCORE = COMPLEXITY_SCALE.length - 1;
 
-/** Phrases that mean "the human already decided", checked against the raw prompt. */
-export const OVERRIDE_PATTERNS = TIERS.map((t) => ({
-  tier: t.name,
-  re: new RegExp(
-    `\\b(?:use|switch to|with|on)\\s+(?:${{
-      haiku: "haiku|fast|luna",
-      sonnet: "sonnet|balanced|terra",
-      opus: "opus|strong|sol",
-      fable: "fable|long|astra",
-    }[t.name]})\\b`,
+const OVERRIDE_ALIASES = {
+  haiku: { latin: "haiku|fast|luna", japanese: "ハイク|ルナ" },
+  sonnet: { latin: "sonnet|balanced|terra", japanese: "ソネット|テラ" },
+  opus: { latin: "opus|strong|sol", japanese: "オーパス|ソル" },
+  fable: { latin: "fable|long|astra", japanese: "フェイブル|アストラ" },
+};
+
+const withoutQuotedOrCode = (prompt) =>
+  String(prompt ?? "").replace(
+    /```[\s\S]*?```|`[^`\r\n]*`|「[^」]*(?:」|$)|『[^』]*(?:』|$)|“[^”]*(?:”|$)|"[^"\r\n]*"|'[^'\r\n]*'/g,
+    " ",
+  );
+
+/** Phrases that mean "the human already decided", excluding quoted text and code. */
+export const OVERRIDE_PATTERNS = TIERS.map((t) => {
+  const aliases = OVERRIDE_ALIASES[t.name];
+  const english = new RegExp(`\\b(?:use|switch to|with|on)\\s+(?:${aliases.latin})\\b`, "i");
+  // Japanese normally has no word boundary between a Latin model name and a particle.
+  // Keep the leading boundary ASCII-only so natural text such as "今回はAstraを使って"
+  // works, while embedded identifiers such as "nonastraを使って" do not.
+  // 「で」by itself is deliberately insufficient: require an imperative execution verb so
+  // questions such as「Astraでは何ができますか」cannot silently change the model.
+  const japaneseDirective =
+    `(?<![A-Za-z0-9_\\-「『“\"'])(?:${aliases.latin}|${aliases.japanese})\\s*` +
+    "(?:" +
+    "を\\s*(?:使(?:って|う)|使用して|選(?:んで|ぶ)|選択して)" +
+    "|に\\s*(?:して|切り替えて)" +
+    "|へ\\s*切り替えて" +
+    "|で\\s*(?:実装して|作業して|進めて|対応して|やって|お願い(?:します)?)" +
+    ")";
+  // A Japanese model phrase is an override only when the directive clause ends there (with
+  // optional politeness/punctuation). This rejects negation, questions, examples, and
+  // explanatory continuations such as「実装している場合」or「実装してもらえますか」.
+  const japanese = new RegExp(
+    `${japaneseDirective}(?:\\s*(?:ください|下さい)?\\s*[。.!！]?)$`,
     "i",
-  ),
-}));
+  );
+  return {
+    tier: t.name,
+    re: {
+      test(prompt) {
+        const unquoted = withoutQuotedOrCode(prompt);
+        return english.test(unquoted) || japanese.test(unquoted);
+      },
+    },
+  };
+});
 
 export const QUESTIONS = {
   task_complexity: score(
@@ -124,14 +158,21 @@ const GUIDANCE = {
     not_for: "Open-ended architecture, subtle concurrency, or unknown-cause debugging.",
   },
   opus: {
-    what: "Hard reasoning, ambiguity, or high blast radius.",
-    signals: ["Unknown-cause debugging, cross-module design, security, auth, concurrency, or migrations"],
-    not_for: "Routine work with a clear implementation.",
+    what: "Ordinary and substantial engineering that needs judgment or coordinated tool use within one primary domain.",
+    signals: [
+      "Unknown-cause local debugging, a bounded cross-module refactor, or a clearly scoped security, auth, concurrency, or migration change",
+    ],
+    not_for: "The most demanding multi-domain, high-risk, large-scale, or long-running work.",
   },
   fable: {
-    what: "Very large or long-running work beyond a normal focused session.",
-    signals: ["Whole-repo migration, unusually large context, or multi-hour autonomous execution"],
-    not_for: "Anything a strong model can finish in one focused session.",
+    what: "The most demanding work: advanced reasoning, multi-domain ambiguity, or high blast radius.",
+    signals: [
+      "Deep or novel reasoning with no obvious solution",
+      "Several interacting architecture, security, data, product, or operations decisions",
+      "High-risk or large-scale changes where a wrong decision has broad consequences",
+      "Whole-repo migration, unusually large context, or multi-hour autonomous execution",
+    ],
+    not_for: "Simple, ordinary, or bounded substantial work that a cheaper available model can finish reliably.",
   },
 };
 
@@ -141,6 +182,8 @@ export const questionForModels = (models) =>
     [
       "Pick the cheapest exact model that can fully complete this coding request in one pass, without retrying on a stronger model.",
       "Treat different model versions as separate choices. Judge required reasoning, not requested reply length.",
+      "When a fable-tier model is available, choose it for advanced or novel reasoning, decisions spanning multiple domains, high-risk or high-blast-radius changes, whole-repository migrations, unusually large context, or multi-hour autonomous work.",
+      "Keep simple, ordinary, and bounded substantial work on the cheaper haiku, sonnet, or opus tiers.",
     ],
     Object.fromEntries(
       models.map(({ id, tier, description }) => [

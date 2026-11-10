@@ -13,14 +13,12 @@ const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const API_BASE_URL = "https://api.openai.com/v1";
 export const CODEX_AUTO_MODEL = "jev-router";
 const DEFAULT_MODELS = {
-  haiku: "gpt-5.6-luna",
-  sonnet: "gpt-5.6-terra",
-  opus: "gpt-5.6-sol",
+  haiku: "gpt-6-luna",
+  opus: "gpt-6-sol",
   fable: "gpt-6-astra",
 };
 const MODEL_ENV = {
   haiku: "JEV_CODEX_FAST_MODEL",
-  sonnet: "JEV_CODEX_BALANCED_MODEL",
   opus: "JEV_CODEX_STRONG_MODEL",
   fable: "JEV_CODEX_LONG_MODEL",
 };
@@ -29,11 +27,7 @@ export const codexModelOf = (tier) => process.env[MODEL_ENV[tier]] ?? DEFAULT_MO
 
 export function codexTierOf(model) {
   const configured = Object.keys(DEFAULT_MODELS).find((tier) => codexModelOf(tier) === model);
-  if (configured) return configured;
-  if (/(?:astra|fable|long)/i.test(model ?? "")) return "fable";
-  if (/(?:sol|opus|strong|max|pro)/i.test(model ?? "")) return "opus";
-  if (/(?:luna|haiku|fast|mini|nano)/i.test(model ?? "")) return "haiku";
-  return /^gpt-/i.test(model ?? "") ? "sonnet" : null;
+  return configured ?? null;
 }
 
 /** Exact GPT models in Codex's account catalog; configured ids are the cold-start fallback. */
@@ -81,15 +75,44 @@ const cleanPrompt = (text) =>
 export const isCodexAuxiliaryPrompt = (prompt) =>
   /^Generate a concise, single-line task title\b/i.test(prompt);
 
+const CODEX_CONTINUATION_TYPES = new Set([
+  "function_call",
+  "function_call_output",
+  "custom_tool_call",
+  "custom_tool_call_output",
+  "tool_result",
+]);
+
+const hasCodexTools = (body) =>
+  (Array.isArray(body?.tools) && body.tools.length > 0) ||
+  body?.input?.some(
+    (item) => item?.type === "additional_tools" && Array.isArray(item.tools) && item.tools.length > 0,
+  );
+
+const hasContinuationContent = (item) =>
+  CODEX_CONTINUATION_TYPES.has(item?.type) ||
+  (Array.isArray(item?.content) &&
+    item.content.some((content) => CODEX_CONTINUATION_TYPES.has(content?.type)));
+
 /** User text that starts a new Codex turn, or null for tool continuations. */
 export function codexNewTurnPrompt(body) {
   if (!Array.isArray(body?.input)) return null;
-  if (!body.input.some((item) => item?.type === "additional_tools")) return null;
+  // Auxiliary Codex requests (for example title generation) do not carry the agent's tools.
+  // This structural check avoids depending only on the current wording of those prompts.
+  if (!hasCodexTools(body)) return null;
   for (const item of [...body.input].reverse()) {
-    if (item?.type === "function_call_output" || item?.type === "custom_tool_call_output") return null;
+    if (hasContinuationContent(item)) return null;
+    // If an assistant message follows the last user turn, this is a continuation or synthetic
+    // request. Never walk past it and resend an older user prompt to Jev.
+    if (item?.role === "assistant") return null;
     if (item?.role !== "user") continue;
-    const prompt = cleanPrompt(textOf(item.content));
+    const raw = textOf(item.content);
+    const prompt = cleanPrompt(raw);
     if (prompt && !isCodexAuxiliaryPrompt(prompt)) return prompt;
+    // Codex appends user-role context wrappers after the real prompt. They are safe to skip,
+    // while a genuinely empty user item is a boundary and must not expose an older prompt.
+    if (raw.trim()) continue;
+    return null;
   }
   return null;
 }
@@ -107,7 +130,7 @@ export function addJevModel(catalog) {
     return catalog;
   }
   const template =
-    catalog.models.find((model) => model.slug === codexModelOf("sonnet")) ??
+    catalog.models.find((model) => model.slug === codexModelOf("opus")) ??
     catalog.models.find((model) => model.visibility === "list") ??
     catalog.models[0];
   if (!template) return catalog;
@@ -170,6 +193,8 @@ export async function startCodexProxy({
   apiBaseURL = API_BASE_URL,
   route = askJev,
   statusId = "",
+  host = "127.0.0.1",
+  port = 0,
 } = {}) {
   const states = new Map();
   const models = new Map();
@@ -319,6 +344,12 @@ export async function startCodexProxy({
     });
   });
 
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
   return { port: server.address().port, close: () => server.close() };
 }
