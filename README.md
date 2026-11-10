@@ -1,5 +1,13 @@
 # jev-router (Vercel AI Gateway edition)
 
+> [!WARNING]
+> **Retired on 2026-11-10.** This fork is no longer used and the repository is archived (read-only).
+> The local Codex proxy (`com.makeachange.jev-codex-proxy`, 127.0.0.1:17421) has been stopped, and
+> Codex now connects through its standard provider (OpenAI / ChatGPT sign-in) instead of jev-router.
+> Use the upstream [gargpratyush/jev-router](https://github.com/gargpratyush/jev-router) if you need
+> automatic routing again. The unused Cloudflare Workers AI backend is kept on the
+> `MasahiroOkamura-MAC/jev-cloudflare-backend` branch for reference only.
+
 > Fork of [gargpratyush/jev-router](https://github.com/gargpratyush/jev-router) that can also
 > reach Jev through [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev). If you have
 > an `AI_GATEWAY_API_KEY`, you do not need a separate TypeSafe key. Everything else is
